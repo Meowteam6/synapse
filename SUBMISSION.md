@@ -36,7 +36,33 @@ Synapse addresses the second problem, and it is the product.
 
 ---
 
-## What we built
+## What a facility gets
+
+Two working care agents, running on the facility's own hardware.
+
+**night-triage** answers the call button overnight. It classifies urgency,
+decides who to wake, and drafts the note the incoming nurse reads. For
+Mrs. Alvarez above it returns `urgency: urgent`, routes to the charge nurse,
+and flags *"possible fall — in-person nurse assessment required"* — because
+a fall escalates regardless of what the resident says about it. That rule is
+enforced in code after the model returns, not requested in a prompt.
+
+**med-checkin** covers the medication pass. It records what the resident
+actually reported, escalates refusals, dosing errors, and new symptoms, and
+refuses to write `taken` into the medication administration record when the
+answer was ambiguous. The MAR is a legal record; inferring administration
+into it is falsification.
+
+Both are decision support for the staff already in the building. Neither
+diagnoses, treats, or decides anything a licensed nurse would otherwise
+decide. That boundary is declared per-agent and it is one of the things the
+certification tests.
+
+The value is not that these agents are clever. It is that a 60-bed facility
+with one aide awake and no IT department can run them at all — and can find
+out, before a resident is involved, exactly where they fail.
+
+## How a facility can trust them
 
 **Agents are folders a facility owns**, not dependencies it imports:
 
