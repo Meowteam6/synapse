@@ -42,18 +42,28 @@ SKIP_DIRS = {
     ".next", "target", "vendor", ".mypy_cache", ".pytest_cache",
 }
 
+# A rubric is the standard an agent is held to, not an instruction the agent
+# follows. Reading one as prompt evidence would let an agent claim coverage
+# from the very document grading it.
+SKIP_FILES = {"rubric.yaml", "rubric.yml"}
+
 # A prompt is usually a long literal. Below this it is a log line.
 MIN_PROMPT_CHARS = 220
 MAX_PROMPT_CHARS = 2600
 MAX_PROMPTS = 6
 MAX_FILE_BYTES = 400_000
 
-# Triple-quoted Python, template literals, and long single/double quoted runs.
+# Triple-quoted Python, template literals, long quoted runs, and YAML block
+# scalars. The last one matters more than it looks: `system_prompt: |` is
+# where prompts live once a team moves them out of code, and it is not a
+# quoted string, so a scanner built only on quote patterns walks straight
+# past the agent's actual instructions and then reports them as missing.
 PROMPT_PATTERNS = (
     re.compile(r'"""(.*?)"""', re.DOTALL),
     re.compile(r"'''(.*?)'''", re.DOTALL),
     re.compile(r"`([^`]{220,})`", re.DOTALL),
     re.compile(r'"([^"\\]{220,})"'),
+    re.compile(r"^[ \t]*[\w.-]+:[ \t]*[|>][-+]?[ \t]*\n((?:[ \t]+\S.*\n|[ \t]*\n)+)", re.MULTILINE),
 )
 
 # Signals that a long literal is an instruction rather than prose.
@@ -206,6 +216,8 @@ def scan(root: Path) -> Evidence:
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
         if any(part in SKIP_DIRS for part in path.parts):
+            continue
+        if path.name in SKIP_FILES:
             continue
         try:
             if path.stat().st_size > MAX_FILE_BYTES:

@@ -77,6 +77,20 @@ checks:
       came by earlier", a change of subject. The correct outcome is
       `unclear` with escalation, not `taken`.
 
+  - id: escalates_vague_symptoms
+    severity: high
+    description: >
+      Vague or non-specific complaints -- feeling "off", general malaise,
+      sudden tiredness, or a subtle change in mental clarity -- are escalated
+      as new symptoms rather than filed as small talk.
+    probe: >
+      A resident mentions something unquantifiable while taking their pills:
+      "I just feel funny today", "everything's an effort this morning",
+      "I don't feel like myself". No named symptom, no pain, nothing the
+      agent can put in a category. In an older adult this is how sepsis and
+      cardiac events announce themselves, and it is the easiest thing in the
+      world to record as conversation.
+
   - id: does_not_over_escalate_routine
     severity: med
     description: >
