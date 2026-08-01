@@ -269,6 +269,54 @@ def cmd_certify(args: argparse.Namespace) -> int:
     return 0 if report.cleared else 1
 
 
+def cmd_publish(args: argparse.Namespace) -> int:
+    """Copy certification records into the console and optionally deploy.
+
+    The console is a viewer, not a service: it reads records at build time
+    and never talks to the facility machine. Publishing is therefore an
+    explicit, reviewable copy rather than a live feed -- a facility decides
+    what leaves its network and when.
+
+    Returns:
+        0 on success, 1 if nothing has been certified yet.
+    """
+    import subprocess
+
+    from synapse import console
+
+    records = console.load_records(OUT)
+    if not records:
+        print(f"{RED}No certification records in {OUT}.{RESET}")
+        print(f"Run: {CYAN}synapse certify <agent>{RESET} first.")
+        return 1
+
+    site = ROOT / "web"
+    path = console.write_console(records, site)
+
+    for record in records:
+        print(f"  rendered {record['agent']}  {record['verdict']}")
+    print(f"\n  {path}")
+
+    if not args.deploy:
+        print(f"  {DIM}Add --deploy to push to Vercel.{RESET}\n")
+        return 0
+
+    print(f"\n  {DIM}deploying...{RESET}")
+    result = subprocess.run(
+        ["vercel", "deploy", "--prod", "--yes"],
+        cwd=ROOT / "web",
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"{RED}Deploy failed:{RESET}\n{result.stderr[-1500:]}")
+        return 1
+
+    url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    print(f"  {GREEN}live:{RESET} {url}\n")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser."""
     parser = argparse.ArgumentParser(
@@ -305,6 +353,10 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--check", action="append", help="limit to a check id")
     certify.add_argument("--show", type=int, default=5, help="failures to detail")
     certify.set_defaults(func=cmd_certify)
+
+    publish = sub.add_parser("publish", help="stage records into the console")
+    publish.add_argument("--deploy", action="store_true", help="push to Vercel")
+    publish.set_defaults(func=cmd_publish)
 
     return parser
 

@@ -60,6 +60,8 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 # runs entirely on localhost and certification simply takes longer.
 CEREBRAS_HOST = os.getenv("CEREBRAS_HOST", "https://api.cerebras.ai/v1")
 CEREBRAS_PREFIX = "cerebras:"
+CEREBRAS_RATE_LIMIT_RETRIES = 4
+CEREBRAS_BACKOFF_SECONDS = 12
 
 # Candidate Gemma 4 identifiers on Cerebras, tried in order against their
 # /models endpoint. Hosted model naming drifts, so the tag is discovered at
@@ -282,6 +284,40 @@ def is_gemma4(tag: str) -> bool:
     return stripped.startswith("gemma4") or stripped.startswith("gemma-4")
 
 
+def _strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a schema satisfying Cerebras strict-mode rules.
+
+    Strict structured output requires every object to set
+    `additionalProperties: false` and to list all of its properties as
+    required. Ollama imposes neither, so agent manifests are written
+    without them and the constraint is applied here rather than pushed
+    onto everyone authoring a rubric.
+
+    Args:
+        schema: a JSON schema as declared in an agent manifest.
+
+    Returns:
+        A deep copy with strict-mode constraints applied throughout.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    out = {k: v for k, v in schema.items()}
+
+    if out.get("type") == "object":
+        properties = {
+            name: _strict_schema(spec) for name, spec in out.get("properties", {}).items()
+        }
+        out["properties"] = properties
+        out["additionalProperties"] = False
+        out["required"] = list(properties)
+
+    if out.get("type") == "array" and isinstance(out.get("items"), dict):
+        out["items"] = _strict_schema(out["items"])
+
+    return out
+
+
 def _complete_cerebras(
     messages: list[dict[str, str]],
     *,
@@ -331,23 +367,42 @@ def _complete_cerebras(
     if schema is not None:
         payload["response_format"] = {
             "type": "json_schema",
-            "json_schema": {"name": "synapse_output", "strict": True, "schema": schema},
+            "json_schema": {
+                "name": "synapse_output",
+                "strict": True,
+                "schema": _strict_schema(schema),
+            },
         }
 
     started = time.perf_counter()
-    try:
-        resp = requests.post(
-            f"{CEREBRAS_HOST}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {key}"},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        detail = ""
-        if exc.response is not None:
-            detail = f" -- {exc.response.text[:300]}"
-        raise LLMError(f"Cerebras call failed on {tag}: {exc}{detail}") from exc
+    resp = None
+
+    # Cerebras meters tokens per minute, and certification is bursty by
+    # nature -- a rubric fans out into many generation calls at once. A 429
+    # is a pacing problem, not a failure, so back off and continue rather
+    # than dropping the check and leaving a gap in the record.
+    for attempt in range(CEREBRAS_RATE_LIMIT_RETRIES + 1):
+        try:
+            resp = requests.post(
+                f"{CEREBRAS_HOST}/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 429 and attempt < CEREBRAS_RATE_LIMIT_RETRIES:
+                wait = CEREBRAS_BACKOFF_SECONDS * (attempt + 1)
+                logger.info("Cerebras rate limit, waiting %ds", wait)
+                time.sleep(wait)
+                continue
+            detail = f" -- {exc.response.text[:300]}" if exc.response is not None else ""
+            raise LLMError(f"Cerebras call failed on {tag}: {exc}{detail}") from exc
+
+    if resp is None:
+        raise LLMError(f"Cerebras call failed on {tag}: exhausted retries.")
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     body = resp.json()
