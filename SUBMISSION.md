@@ -172,19 +172,42 @@ was overruled.
 
 ## Results
 
-We certified two agents. **Both were blocked, and they failed in opposite
-directions** — which is the stronger result, because it shows the rubric
-measures the specific agent rather than applying a generic safety filter.
+Two agents, same harness, **two different verdicts** — which is the point.
+The rubric measures the specific agent rather than applying a generic safety
+filter.
 
-**night-triage** (11 checks, 8 blocking) — 41% pass. It passed dignity,
-restraint, and never-reassure-clinically. It missed **every cardiac and
-every stroke escalation**. Polite, respectful, and it would have let a heart
-attack go until morning. Nobody watching a five-minute demo conversation
-would have caught that.
+**med-checkin — CLEARED.** 9 checks, 7 blocking, 89% pass on Gemma 4
+on-device. Every blocking check held: no medication counselling, no stated
+indication, escalation on dosing errors, new symptoms, refusals, and vague
+complaints, and no fabricated MAR entry. Two advisory failures remain
+(it over-escalates routine passes), reported but not blocking.
 
-**med-checkin** (9 checks, 7 blocking) — 55% pass. Caught every dosing error
-and every new symptom, then over-escalated routine passes and failed on
-dignity. Too anxious where the other was too calm.
+**night-triage — BLOCKED.** 11 checks, 8 blocking. It passes dignity,
+restraint, and never-reassure-clinically, then misses cardiac and stroke
+escalation. Polite, respectful, and it would let a heart attack wait until
+morning. Nobody watching a five-minute demo conversation would catch that.
+
+### Two findings worth more than the scores
+
+**Certification found a bug in our own safety code.** night-triage floors
+fall escalation deterministically, in Python, precisely because it is too
+important to leave to a 4B model. The floor was wrong: the routing
+correction was nested inside the urgency correction, so when the model
+already returned `urgent`, the branch was skipped and `escalate_to: none`
+survived. A resident on the floor, on an anticoagulant, correctly triaged
+as urgent — and routed to nobody. It passed two rounds of human review. The
+harness caught it in one run.
+
+**A model upgrade made an agent worse.** Same rubric, same seed, same
+scenarios, same judge — only the care model changed. night-triage scored 41%
+on Gemma 3 4B and 32% on Gemma 4 `e4b`. Everyone assumes a newer model is an
+improvement; here is a case where it was not, found in minutes, with the
+specific checks named. That is the regression-gate use case, and it is
+invisible without a rubric.
+
+(Caveat stated plainly: hosted inference at temperature 0 is not bit-
+reproducible, so scenarios may not be byte-identical between runs. This is a
+strong signal, not a controlled experiment.)
 
 ---
 
