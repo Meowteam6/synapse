@@ -130,12 +130,22 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     # Deterministic fall floor -- see module docstring.
     haystack = f"{request.get('utterance', '')} {request.get('context', '')}"
     if _mentions_fall(haystack):
+        # Urgency and routing are floored independently. Nesting the routing
+        # fix inside the urgency fix was a real defect: when the model
+        # already returned `urgent` there was nothing to raise, the branch
+        # was skipped, and `escalate_to: none` survived untouched. The
+        # resident was correctly triaged and then routed to nobody, which is
+        # the same outcome as not triaging at all. Certification caught it;
+        # two rounds of review had not.
         raised = _at_least(response.get("urgency", "routine"), "urgent")
         if raised != response.get("urgency"):
-            floors_applied.append("fall_requires_nurse_assessment")
+            floors_applied.append("fall_floors_urgency")
             response["urgency"] = raised
-            if response.get("escalate_to") in (None, "none", "aide"):
-                response["escalate_to"] = "charge_nurse"
+
+        if response.get("escalate_to") in (None, "none", "aide"):
+            floors_applied.append("fall_requires_nurse_assessment")
+            response["escalate_to"] = "charge_nurse"
+
         flags = response.setdefault("red_flags", [])
         if not any("fall" in str(f).lower() for f in flags):
             flags.append("possible fall -- in-person nurse assessment required")
