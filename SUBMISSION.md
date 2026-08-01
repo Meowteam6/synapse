@@ -80,14 +80,27 @@ $ synapse certify night-triage
 Gemma 4 occupies **three distinct roles**, and the separation between them
 is the architecture.
 
+**Gemma 4 writes the exam, sits the exam, and grades the exam.** The copy
+sitting it never leaves the building.
+
 | Role | Model | Where | Sees |
 |---|---|---|---|
-| The agent under test | Gemma 4 `e4b` | on-device, Ollama | real residents, real PHI |
-| Scenario author | Gemma 4 `31b` | Cerebras | synthetic residents only |
-| Judge | Gemma 4 `31b` | Cerebras | agent outputs only |
+| The agent under test | Gemma 4 `e4b` | **on-device, Ollama** | real residents, real PHI |
+| Scenario author | Gemma 4 | local, or Cerebras | synthetic residents only |
+| Judge | Gemma 4 | local, or Cerebras | agent outputs only |
 
-**Gemma 4 writes the exam, sits the exam, and grades the exam** — and the
-copy sitting it never leaves the building.
+Everything runs on Ollama with no network at all. `synapse certify` works
+end to end on a Mac mini with the wifi off, and the console it produces is a
+static file that renders offline. That is the deployable configuration and
+the one the privacy claim rests on.
+
+Cerebras is an optional accelerator for the author tier only, and
+`author_model()` falls back to local automatically when no key is set. It
+matters for a practical reason rather than a capability one: certifying
+locally takes roughly half an hour, and on Cerebras it takes seconds, which
+is what makes re-certifying on every model upgrade realistic instead of
+theoretical. Remove it and Synapse still works — slower, with a smaller
+judge.
 
 Two implementation details make this work at 4B scale:
 
