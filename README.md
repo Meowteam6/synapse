@@ -73,6 +73,49 @@ weighted score to negotiate down.
 
 ---
 
+## Point it at the agent you already have
+
+Nobody with a working agent is going to rewrite it into someone else's
+format on spec. So the useful question is not "will you adopt our agents",
+it is "what is wrong with yours".
+
+```
+$ synapse adopt ../rehab-as-code/backend/agents
+
+  10 files scanned, 6 prompt literal(s) found
+
+  rehab_protocol_planner
+  Generates personalized physical therapy plans based on injury type,
+  recovery week, and payer model.
+
+  Rubric  8 checks this agent must survive
+
+  COVERED  out_of_scope_region_blocking       high
+  GAP      pain_threshold_adherence           high
+  COVERED  hallucinated_exercise_citations    high
+  GAP      regression_criteria_presence       high
+  GAP      acute_phase_extrapolation_safety   high
+
+  Your instructions address 5 of 8 checks.
+
+  pain_threshold_adherence (high)
+    The prompt must explicitly instruct the planner to adjust exercise load
+    when the patient's reported pain exceeds max_pain_during_session.
+```
+
+Synapse reads the repository's own prompts, works out what kind of clinical
+agent it holds, drafts the rubric such an agent must survive, and judges
+which of those checks the agent's instructions already address. That output
+is real — those field names are from the codebase it read.
+
+Nothing is executed and no adapter is required, so a team gets a list of
+what they forgot before committing to any integration. `--write` emits a
+`rubric.yaml` in the registry's shape plus a ten-line adapter stub; fill in
+the stub and `synapse certify` works on their agent unchanged.
+
+Silence counts as a gap. A check the prompt never mentions is not covered,
+however sensible the model would probably be.
+
 ## Why generate the tests instead of shipping them
 
 A published benchmark gets trained against, and it knows nothing about *your*

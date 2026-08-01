@@ -317,6 +317,79 @@ def cmd_publish(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_adopt(args: argparse.Namespace) -> int:
+    """Read an existing repo, draft its rubric, and report the gaps.
+
+    Returns:
+        0 when every high-severity check is already addressed, 1 otherwise.
+        The non-zero exit is deliberate: this is meant to fail a pipeline.
+    """
+    from synapse import adopt as adoption
+
+    root = Path(args.path).expanduser().resolve()
+    print(f"\n{BOLD}Reading {root.name}{RESET}\n{_rule()}")
+
+    try:
+        result = adoption.adopt(root, seed=args.seed)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"{RED}{exc}{RESET}")
+        return 1
+    except llm.LLMError as exc:
+        print(f"{RED}Could not draft a rubric: {exc}{RESET}")
+        return 1
+
+    ev = result.evidence
+    print(
+        f"  {DIM}{ev.files_scanned} files scanned, "
+        f"{len(ev.prompts)} prompt literal(s) found{RESET}"
+    )
+    print(f"  {DIM}drafted by {result.model}{RESET}\n")
+    print(f"  {BOLD}{result.agent_kind}{RESET}")
+    print(f"  {result.summary}\n")
+
+    print(_rule())
+    print(f"  {BOLD}Rubric{RESET}  {DIM}{len(result.checks)} checks this agent must survive{RESET}\n")
+    for check in result.checks:
+        if check["addressed"]:
+            mark, colour = "COVERED", GREEN
+        elif check["severity"] == "high":
+            mark, colour = "GAP    ", RED
+        else:
+            mark, colour = "GAP    ", YELLOW
+        print(f"  {colour}{mark}{RESET}  {check['id']:<38} {DIM}{check['severity']}{RESET}")
+
+    gaps = result.gaps
+    blocking = result.blocking_gaps
+
+    print(f"\n{_rule()}")
+    print(
+        f"  Your instructions address {BOLD}{len(result.addressed)}{RESET} of "
+        f"{BOLD}{len(result.checks)}{RESET} checks."
+    )
+
+    if gaps:
+        print(f"\n{BOLD}What your prompt does not say{RESET}\n")
+        for check in gaps[: args.show]:
+            colour = RED if check["severity"] == "high" else YELLOW
+            print(f"  {colour}{check['id']}{RESET} {DIM}({check['severity']}){RESET}")
+            print(f"    {check['gap'].strip()}\n")
+
+    if args.write:
+        target = ROOT / "registry" / root.name
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "rubric.yaml").write_text(result.to_rubric_yaml())
+        (target / "agent.py").write_text(
+            adoption.ADAPTER_TEMPLATE.format(name=root.name)
+        )
+        print(f"  wrote {target / 'rubric.yaml'}")
+        print(f"  wrote {target / 'agent.py'} {DIM}(stub -- wire it to your agent){RESET}")
+        print(f"\n  Then: {CYAN}synapse certify {root.name}{RESET}\n")
+    else:
+        print(f"  {DIM}Add --write to draft rubric.yaml and an adapter stub.{RESET}\n")
+
+    return 1 if blocking else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser."""
     parser = argparse.ArgumentParser(
@@ -353,6 +426,13 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--check", action="append", help="limit to a check id")
     certify.add_argument("--show", type=int, default=5, help="failures to detail")
     certify.set_defaults(func=cmd_certify)
+
+    adopt = sub.add_parser("adopt", help="draft a rubric for an existing agent repo")
+    adopt.add_argument("path", help="repository holding the agent's source")
+    adopt.add_argument("--write", action="store_true", help="write rubric + adapter stub")
+    adopt.add_argument("--seed", type=int, default=llm.DEFAULT_SEED)
+    adopt.add_argument("--show", type=int, default=6, help="gaps to detail")
+    adopt.set_defaults(func=cmd_adopt)
 
     publish = sub.add_parser("publish", help="stage records into the console")
     publish.add_argument("--deploy", action="store_true", help="push to Vercel")
